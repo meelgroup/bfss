@@ -55,10 +55,8 @@ LIB_COMMON = -lm -ldl -lreadline -lpthread -lz
 else
 LIB_UGEN   = -Wl,-Bdynamic -lcryptominisat5
 LIB_ABC    = -Wl,-Bstatic  -labc
-# Readline depends on termcap/terminfo. Prefer -ltermcap if present, otherwise -lncurses.
-TERM_LIB ?= $(shell tmp=$$(mktemp -t bfss_termcap.XXXXXX); \
-	echo 'int main(){return 0;}' | $(CXX) -x c - -ltermcap -o $$tmp >/dev/null 2>&1 && echo -ltermcap || echo -lncurses; \
-	rm -f $$tmp)
+# Readline depends on termcap/terminfo. Default to ncurses; override with TERM_LIB=-ltermcap if needed.
+TERM_LIB ?= -lncurses
 LIB_COMMON = -Wl,-Bdynamic -lm -ldl -lreadline $(TERM_LIB) -lpthread -fopenmp -lrt -Wl,-Bdynamic -lboost_program_options -Wl,-Bdynamic -lz
 endif
 
