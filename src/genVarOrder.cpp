@@ -24,39 +24,6 @@ double reverse_sub_time = 0;
 chrono_steady_time helper_time_measure_start = TIME_NOW;
 chrono_steady_time main_time_start = TIME_NOW;
 
-vector<int> calculateLeastOccurence(Aig_Man_t* FAig) {
-	Aig_Obj_t* pObj; int i;
-	unordered_map<int, vector<bool> > nodeSupport;
-	vector<bool> initVec(numY, false);
-	vector<int>  ranks(numY,0);
-
-	for (int i = 0; i < numX; ++i) {
-		nodeSupport[varsXF[i]] = initVec;
-	}
-	for (int i = 0; i < numY; ++i) {
-		vector<bool> updateVec(numY, false);
-		updateVec[i] = true;
-		nodeSupport[varsYF[i]] = updateVec;
-	}
-	Aig_ManForEachObj(FAig, pObj, i) {
-		if(pObj->Id > numOrigInputs) {
-			vector<bool> updateVec(numY, false), lVec(numY, false), rVec(numY, false);
-			if(Aig_ObjFanin0(pObj) != NULL)
-				lVec = nodeSupport[Aig_ObjFanin0(pObj)->Id];
-			if(Aig_ObjFanin1(pObj) != NULL)
-				rVec = nodeSupport[Aig_ObjFanin1(pObj)->Id];
-			for(int i = 0; i < numY; ++i) {
-				updateVec[i] = lVec[i] || rVec[i];
-				if(updateVec[i]) {
-					ranks[i]++;
-				}
-			}
-			nodeSupport[pObj->Id] = updateVec;
-		}
-	}
-	return ranks;
-}
-
 ////////////////////////////////////////////////////////////////////////
 ///                            MAIN                                  ///
 ////////////////////////////////////////////////////////////////////////
@@ -71,11 +38,26 @@ int main(int argc, char * argv[]) {
 	varsFile      = options.varsOrder;
 
 	Abc_Ntk_t* FNtk = getNtk(benchmarkName,true);
+	if (FNtk == NULL) {
+		FNtk = getNtk(benchmarkName,false);
+	}
+	if (FNtk == NULL) {
+		cerr << "Error: could not read benchmark " << benchmarkName << endl;
+		return 1;
+	}
 	Aig_Man_t* FAig = Abc_NtkToDar(FNtk, 0, 0);
+	if (FAig == NULL) {
+		cerr << "Error: could not create AIG from " << benchmarkName << endl;
+		return 1;
+	}
 
 	populateVars(FNtk, varsFile, varOrder,
 					varsXF, varsYF,
 					name2IdF, id2NameF);
+	if (numY <= 0) {
+		cerr << "Error: no Y variables found in " << varsFile << endl;
+		return 1;
+	}
 
 	auto rankAll =  calculateLeastOccurence(FAig);
 

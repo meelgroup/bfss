@@ -65,7 +65,6 @@ bool CMSat::CUSP::unigenRunning = false;
 void parseOptionsOrdering(int argc, char * argv[]) {
 	bool lazy;
 	string skolemType;
-cout << "Positional Arguments Argc"<< argc << "Argv: " << argv[0] << endl;
 	optParserOrdering.positional_help("");
 	optParserOrdering.add_options()
 		("b, benchmark", "Specify the benchmark (required)", cxxopts::value<string>(options.benchmark), "FILE")
@@ -3570,6 +3569,50 @@ string getFileName(string s) {
 	assert(s.length() != 0);
 
 	return(s);
+}
+
+vector<int> calculateLeastOccurence(Aig_Man_t* FAig) {
+	Aig_Obj_t* pObj;
+	int i;
+	unordered_map<int, vector<bool> > nodeSupport;
+	vector<bool> initVec(numY, false);
+	vector<int> ranks(numY, 0);
+
+	for (int i = 0; i < numX; ++i)
+		nodeSupport[varsXF[i]] = initVec;
+	for (int i = 0; i < numY; ++i) {
+		vector<bool> updateVec(numY, false);
+		updateVec[i] = true;
+		nodeSupport[varsYF[i]] = updateVec;
+	}
+	Aig_ManForEachObj(FAig, pObj, i) {
+		if (pObj->Id > numOrigInputs) {
+			vector<bool> updateVec(numY, false), lVec(numY, false), rVec(numY, false);
+			if (Aig_ObjFanin0(pObj) != NULL) {
+				int fid = Aig_ObjFanin0(pObj)->Id;
+				auto it = nodeSupport.find(fid);
+				if (it != nodeSupport.end())
+					lVec = it->second;
+			}
+			if (Aig_ObjFanin1(pObj) != NULL) {
+				int fid = Aig_ObjFanin1(pObj)->Id;
+				auto it = nodeSupport.find(fid);
+				if (it != nodeSupport.end())
+					rVec = it->second;
+			}
+			if (lVec.size() != static_cast<size_t>(numY))
+				lVec.assign(numY, false);
+			if (rVec.size() != static_cast<size_t>(numY))
+				rVec.assign(numY, false);
+			for (int i = 0; i < numY; ++i) {
+				updateVec[i] = lVec[i] || rVec[i];
+				if (updateVec[i])
+					ranks[i]++;
+			}
+			nodeSupport[pObj->Id] = updateVec;
+		}
+	}
+	return ranks;
 }
 
 int checkUnateSyntacticAll(Aig_Man_t* FAig, vector<int>&unate) {

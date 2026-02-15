@@ -3,6 +3,7 @@
 #include <fstream>
 #include <cassert>
 #include <string.h>
+#include <cctype>
 #include <vector>
 #include <set>
 #include <map>
@@ -39,7 +40,7 @@ vector<bool> depFound;
 
 queue<int> litToPropagate;
 
-void readQdimacsFile(char * qdFileName);
+void readQdimacsFile(const char * qdFileName);
 void print(vector<int> & v);
 void print(set<int> & v);
 void findDependencies();
@@ -69,25 +70,26 @@ inline string extraNumToName(int v) {
 	return ("x_"+to_string(v));
 }
 
-int main(int argc, char * argv[]) {
-    char * qdFileName;
-    if ( argc < 2 ) {
-        cout << "Wrong number of command-line arguments. Usage: readCnf qdimacs_filename " << endl;
-        return 1;
-    }
-    qdFileName = argv[1];
-
+int runReadCnf(const string& qdFileName) {
 	string baseFileName(qdFileName);
 	baseFileName = baseFileName.substr(baseFileName.find_last_of("/") + 1);  //Get the file name;
 	baseFileName.erase(baseFileName.find (".qdimacs"), string::npos); //This contains the code for the raw file name;
 	cout << "BaseName:     " << baseFileName << endl;
+
+	string moduleName = baseFileName;
+	for (char &ch : moduleName) {
+		if (!isalnum(static_cast<unsigned char>(ch)) && ch != '_')
+			ch = '_';
+	}
+	if (moduleName.empty() || !(isalpha(static_cast<unsigned char>(moduleName[0])) || moduleName[0] == '_'))
+		moduleName = "_" + moduleName;
 
 	string varFileName = baseFileName + "_var.txt";
 	string aigFileName = baseFileName + ".v" ;
 	string depFileName = baseFileName + "_dep.txt" ;
 	string qdmFileName = baseFileName + ".qdimacs.noUnary" ;
 
-	readQdimacsFile(qdFileName);
+	readQdimacsFile(qdFileName.c_str());
 	cout << "Finished readQdimacsFile" << endl;
 
 	// Propagate unary clauses (and more)
@@ -121,12 +123,24 @@ int main(int argc, char * argv[]) {
 	cout << "depCONST.size(): " << depCONST.size() << endl;
 	cout << "numNonTseitin:   " << numNonTseitin << endl;
 
-	writeVerilogFile(aigFileName, baseFileName);
+	writeVerilogFile(aigFileName, moduleName);
 	writeVariableFile(varFileName);
 	writeDependenceFile(depFileName);
+
+	return 0;
 }
 
-void readQdimacsFile(char * qdFileName) {
+#ifndef READCNF_LIB
+int main(int argc, char * argv[]) {
+    if ( argc < 2 ) {
+        cout << "Wrong number of command-line arguments. Usage: readCnf qdimacs_filename " << endl;
+        return 1;
+    }
+	return runReadCnf(argv[1]);
+}
+#endif
+
+void readQdimacsFile(const char * qdFileName) {
     char C[100], c;
     int tmpVar;
 
@@ -141,6 +155,8 @@ void readQdimacsFile(char * qdFileName) {
 	cout << "numVars:       " <<  numVars << endl;
 	cout << "NumClauses:   " << numClauses << endl;
 
+	vector<int> missingIds(numVars+1, -1);
+
 	// Vars X
 	fscanf (qdFPtr, "%c", &c);
 	while (c != 'a')
@@ -149,6 +165,7 @@ void readQdimacsFile(char * qdFileName) {
 	fscanf(qdFPtr, "%d", &tmpVar);
 	while (tmpVar !=0) {
 		varsX.push_back(tmpVar);
+		missingIds[tmpVar] = 1;
 		fscanf(qdFPtr, "%d", &tmpVar);
 	}
 	cout << "varsX.size(): " << varsX.size() << endl;
@@ -162,10 +179,17 @@ void readQdimacsFile(char * qdFileName) {
 	fscanf(qdFPtr, "%d", &tmpVar);
 	while (tmpVar !=0) {
 		varsY.push_back(tmpVar);
+		missingIds[tmpVar] = 1;
 		fscanf(qdFPtr, "%d", &tmpVar);
 	}
 	cout << "varsY.size(): " << varsY.size() << endl;
 	assert (numVars > varsY.size());
+
+	// Add missing prefix variables as X (consistent with QDIMACS semantics)
+	for (int i = 1; i <= numVars; i++) {
+		if (missingIds[i] == -1)
+			varsX.push_back(i);
+	}
 
 	// Update numVars = maxVar
 	int maxVar = 0;
@@ -177,6 +201,17 @@ void readQdimacsFile(char * qdFileName) {
 	if(maxVar < numVars) {
 		cout << "Setting numVars = " << maxVar << endl;
 		numVars = maxVar;
+	}
+
+	// Add missing variables as inputs (same policy as verify)
+	vector<bool> seen(numVars + 1, false);
+	for (auto v : varsX)
+		if (v >= 1 && v <= numVars) seen[v] = true;
+	for (auto v : varsY)
+		if (v >= 1 && v <= numVars) seen[v] = true;
+	for (int v = 1; v <= numVars; ++v) {
+		if (!seen[v])
+			varsX.push_back(v);
 	}
 
 	existsAsPos.resize(numVars+1);
@@ -514,17 +549,26 @@ void propagateLiteral(int lit) {
 void writeVerilogFile(string fname, string moduleName) {
 	ofstream ofs (fname, ofstream::out);
 	ofs << VERILOG_HEADER;
-	ofs << "module " << moduleName << " ";
-	ofs << "(";
+	ofs << "module " << moduleName << " (";
+	vector<string> ports;
 	for(auto it:varsX) {
 		if(!depFound[it])
-		ofs << varNumToName(it) << ", ";
+			ports.push_back(varNumToName(it));
 	}
 	for(auto it:varsY) {
 		if(!depFound[it])
-			ofs << varNumToName(it) << ", ";
+			ports.push_back(varNumToName(it));
 	}
-	ofs << "o_1);" << endl;
+	ports.push_back("o_1");
+
+	for (size_t i = 0; i < ports.size(); ++i) {
+		if (i > 0)
+			ofs << ", ";
+		if (i % 8 == 0)
+			ofs << "\n  ";
+		ofs << ports[i];
+	}
+	ofs << "\n);\n";
 
 	// Input/Output/Wire
 	for(auto it:varsX) {

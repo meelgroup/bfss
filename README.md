@@ -13,8 +13,11 @@ git clone git@github.com:BooleanFunctionalSynthesis/bfss.git
 cd bfss
 git submodule update --init dependencies/abc
 git submodule update --init dependencies/scalmc # Skip if scalmc unavailable
+```
 
-# Setup Dependencies
+### Linux (Ubuntu/Debian)
+```shell
+# Setup dependencies
 sudo apt install libreadline-dev libboost-all-dev libm4ri-dev build-essential cmake
 bash setup.sh
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/dependencies/scalmc/build/lib/
@@ -22,17 +25,31 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(pwd)/dependencies/abc/
 ```
 For persistent use, please add `./dependencies/scalmc/build/lib/` and `./dependencies/abc/` to the `$LD_LIBRARY_PATH` environment variable.
 
+### macOS (Homebrew)
+```shell
+# Xcode command line tools (needed for make/clang)
+xcode-select --install
+
+# Setup dependencies
+brew install cmake boost readline m4ri
+bash setup.sh
+export DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$(pwd)/dependencies/scalmc/build/lib/
+export DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$(pwd)/dependencies/abc/
+```
+For persistent use, please add `./dependencies/scalmc/build/lib/` and `./dependencies/abc/` to the `$DYLD_LIBRARY_PATH` environment variable.
+
 ## Usage
-Running `make [UNIGEN=NO] [BUILD=RELEASE/DEBUG]` builds BFSS. `UNIGEN=NO` compiles BFSS without the Scalmc dependency. Multiple binaries are created in `./bin/`:
+Running `make [UNIGEN=YES/NO] [BUILD=RELEASE/DEBUG]` builds BFSS. `UNIGEN=NO` compiles BFSS without the Scalmc dependency and is the default. Multiple binaries are created in `./bin/`:
 
 1. readCnf
 2. genVarOrder
 3. bfss
 4. verify
+5. unate
 
-readCnf is for converting qdimacs files to verilog files. Running `./readCnf benchmark.qdimacs` creates 2 new files in the working directory: `benchmark.v` and `benchmark_vars.txt` (list of variables to be eliminated)
+readCnf is for converting qdimacs files to verilog files. Running `./readCnf benchmark.qdimacs` creates 2 new files in the working directory: `benchmark.v` and `benchmark_var.txt` (list of variables to be eliminated)
 
-`genVarOrder` takes `.v` and `_vars.txt` files as input and finds a heuristically sound variable ordering to be used. This ordering is printed to stdout, you'll have to redirect it to a file. You should run `./genVarOrder benchmark.v benchmark_vars.txt > benchmark_varstoelim.txt`
+`genVarOrder` takes `.v` and `_var.txt` files as input and finds a heuristically sound variable ordering to be used. This ordering is printed to stdout, you'll have to redirect it to a file. You should run `./genVarOrder benchmark.v benchmark_var.txt > benchmark_varstoelim.txt`
 
 `bfss` runs the BFSS algorithm on an input AIG and variable ordering. It saves generated skolem functions to `benchmark_result.v`
 
@@ -45,6 +62,30 @@ So a typical sequence of commands for working on a qdimacs would be as follows.
 ./bfss benchmark.v benchmark_varstoelim.txt -felut 3 --checkWDNNF (optionally add --useBDD to use the BDD pipeline)
 ./verify benchmark.v benchmark_result.v benchmark_varstoelim.txt
 ```
+
+### Unate Tool
+`unate` computes positive/negative unate variables for a QDIMACS file using the same pipeline as `readCnf` + `genVarOrder` + verilog-based unate checks. It writes a `*_vardetails` file that is easy to parse:
+
+```
+Posunate: <space-separated variable ids>
+Negunate: <space-separated variable ids>
+```
+
+Build and run:
+```shell
+make unate
+./bin/unate benchmark.qdimacs
+cat benchmark.qdimacs_vardetails
+```
+
+Notes:
+- Output files are written to the current working directory.
+- The input must have a `.qdimacs` extension.
+- For a static Linux build (no UniGen), use `make unate STATIC=YES UNIGEN=NO`.
+
+### AI-Agent Notes
+- Binaries assume paths are relative to the current working directory; run from the repo root unless you intentionally want outputs in another directory.
+- `unate` runs `readCnf` in-process and derives the variable order internally (it still writes `_varstoelim.txt` for reproducibility).
 
 ## Benchmarks
 Benchmarks can be found in the `./benchmarks/` directory.

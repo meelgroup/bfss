@@ -252,6 +252,7 @@ void 			populateVars(Abc_Ntk_t* FNtk, string varsFile, vector<string>& varOrder,
 					vector<int>& varsXF, vector<int>& varsYF,
 					map<string,int>& name2IdF, map<int,string>& id2NameF);
 void 			substituteUnates(Aig_Man_t* &pMan, vector<int>&unate);
+vector<int>		calculateLeastOccurence(Aig_Man_t* FAig);
 void 			saveSkolems(Aig_Man_t* SAig, vector<int>& r_Aigs, string outfname);
 void 			printAig(Aig_Man_t* pMan);
 int 			Aig_DagSizeWithConst(Aig_Obj_t * pObj);

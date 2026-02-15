@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -42,10 +43,33 @@ Abc_Ntk_t* getNtk(string pFileName);
 // void populateVars(Abc_Ntk_t* FNtk, Abc_Ntk_t* skolemNtk, string varsFile);
 void populateVars(Abc_Ntk_t* FNtk, Aig_Man_t* FAig, Abc_Ntk_t* skolemNtk, string varsFile, bool verilogInput);
 string getFileName(string s);
+static int trailingNumber(const string& s);
+static bool isVerbose();
 
 
 chrono_steady_time helper_time_measure_start = TIME_NOW;
 chrono_steady_time main_time_start = TIME_NOW;
+
+static int trailingNumber(const string& s) {
+	if (s.empty() || !isdigit(static_cast<unsigned char>(s.back())))
+		return -1;
+	int i = static_cast<int>(s.size()) - 1;
+	while (i >= 0 && isdigit(static_cast<unsigned char>(s[i])))
+		--i;
+	return stoi(s.substr(i + 1));
+}
+
+static bool isVerbose() {
+	const char* v = getenv("BFSS_VERBOSE");
+	if (!v || !*v)
+		return false;
+	if (v[0] == '1')
+		return true;
+	string s(v);
+	for (auto& c : s)
+		c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+	return (s == "true" || s == "yes" || s == "on");
+}
 
 /** Function
  * Compresses Aig by converting it to an Ntk and performing a bunch of steps on it.
@@ -369,22 +393,26 @@ int main(int argc, char const *argv[])
 	assert(Aig_ManCiNum(skolemAig) <= numX);
 	assert((Aig_ManCoNum(skolemAig) >= numY) ); //Cadet generated skolem functions file has an extra output which denotes the value of the result.
 
+	bool verbose = isVerbose();
+
 	// ************
 	// Print maps
 	// ************
-	cout << "X (inputs):" << endl;
-	for (int i = 0; i < numX; ++i) {
-		cout << i << ":";
-		cout << "F(Id " << varsXF[i] << ", Name "  << id2NameF[varsXF[i]].c_str() << " ): "  ;
-		cout << "Skolem(Ci " << Xi2Ci_Skolem[i] << " Name " <<  Ci2NameSkolem[Xi2Ci_Skolem[i]].c_str() << ");" << endl ;
-	}
-	cout << endl;
-	cout << "Y (outputs):" << endl;
-	for (int i = 0; i < numY; ++i) {
-		cout << i << ":" << endl;
-		cout << "F(Id " << varsYF[i] << ", Name "  << id2NameF[varsYF[i]].c_str() << " ): " << endl ;
-		cout << "Skolem(Ci " << Yi2Co_Skolem[i] << " Name " <<  Co2NameSkolem[Yi2Co_Skolem[i]].c_str() << ");" <<   endl ;
-		cout << "Co id " <<  Aig_ObjId(Aig_ManCo(skolemAig, Yi2Co_Skolem[i])) << endl;
+	if (verbose) {
+		cout << "X (inputs):" << endl;
+		for (int i = 0; i < numX; ++i) {
+			cout << i << ":";
+			cout << "F(Id " << varsXF[i] << ", Name "  << id2NameF[varsXF[i]].c_str() << " ): "  ;
+			cout << "Skolem(Ci " << Xi2Ci_Skolem[i] << " Name " <<  Ci2NameSkolem[Xi2Ci_Skolem[i]].c_str() << ");" << endl ;
+		}
+		cout << endl;
+		cout << "Y (outputs):" << endl;
+		for (int i = 0; i < numY; ++i) {
+			cout << i << ":" << endl;
+			cout << "F(Id " << varsYF[i] << ", Name "  << id2NameF[varsYF[i]].c_str() << " ): " << endl ;
+			cout << "Skolem(Ci " << Yi2Co_Skolem[i] << " Name " <<  Co2NameSkolem[Yi2Co_Skolem[i]].c_str() << ");" <<   endl ;
+			cout << "Co id " <<  Aig_ObjId(Aig_ManCo(skolemAig, Yi2Co_Skolem[i])) << endl;
+		}
 	}
 //Create Cnfs
 	sat_solver* pSat = sat_solver_new();
@@ -399,7 +427,8 @@ int main(int argc, char const *argv[])
    
  //  cout << "FCnf_copy->nVars " << FCnf_copy->nVars  << " FCnf->nVars " << FCnf->nVars << "skolemCnf->nVars " << skolemCnf->nVars << endl;
     
-	cout << "Equating X (inputs):" << endl;
+	if (verbose)
+		cout << "Equating X (inputs):" << endl;
 	for (int i = 0; i < numX; ++i) {
     //Equate //FCnf.X and FCnf_Copy.X
         EquateC (pSat,   FCnf->pVarNums[varsXF[i]], FCnf_copy -> pVarNums [varsXF[i]]);
@@ -411,7 +440,8 @@ int main(int argc, char const *argv[])
  //       cout << "Equating " << FCnf->pVarNums[varsXF[i]] << " and "  << skolemCnf->pVarNums[Xi2Ci_Skolem[i]]; 
   //      cout <<  "FCnf->pVarNums[varsXF[i]]" <<  " and " << FCnf_copy -> pVarNums [varsXF[i]] << endl;
 	}
-	cout << "Equating Y (outputs):" << endl;
+	if (verbose)
+		cout << "Equating Y (outputs):" << endl;
 	for (int i = 0; i < numY; ++i) {
        //SkolemCo and FCnf.Y 
 //		cout << i << ":" << endl;
@@ -574,17 +604,26 @@ void populateVars(Abc_Ntk_t* FNtk, Aig_Man_t* FAig, Abc_Ntk_t* skolemNtk, string
 	}
 
 	// Handling SkolemAig
+	map<int,int> num2CiSkolem;
+	map<int,int> num2CoSkolem;
+
 	Abc_NtkForEachCi( skolemNtk, pPi, i ) {
 		string variable_name = Abc_ObjName(pPi);
 		//cout << "skolem var name " << variable_name << endl;
 		name2CiSkolem[variable_name] = i;
 		Ci2NameSkolem[i] = variable_name;
+		int num = trailingNumber(variable_name);
+		if (num >= 0)
+			num2CiSkolem[num] = i;
 	}
 
 	Abc_NtkForEachCo( skolemNtk, pPi, i ) {
 		string variable_name = Abc_ObjName(pPi);
 		name2CoSkolem[variable_name] = i;
 		Co2NameSkolem[i] = variable_name;
+		int num = trailingNumber(variable_name);
+		if (num >= 0)
+			num2CoSkolem[num] = i;
 	}
 
 //	cout << "Ci2NameSkolem " <<  Ci2NameSkolem.size() << " " <<  numX;
@@ -593,20 +632,42 @@ void populateVars(Abc_Ntk_t* FNtk, Aig_Man_t* FAig, Abc_Ntk_t* skolemNtk, string
 	assert(Xi2Ci_Skolem.empty());
 	assert(Yi2Co_Skolem.empty());
 
+	bool usedNumericFallback = false;
 	for (int i = 0; i < numX; ++i) {
-			string XiName = id2NameF[varsXF[i]];
-				//cout << "XiName " << XiName << endl;
-			assert (name2CiSkolem.count(XiName) > 0);
-			int CiSkolem = name2CiSkolem[XiName];
-				//cout << "CiSkolem for X  " << i << " is " << CiSkolem << endl;
-			Xi2Ci_Skolem.push_back(CiSkolem);
-	}	
+		string XiName = id2NameF[varsXF[i]];
+		//cout << "XiName " << XiName << endl;
+		int CiSkolem = -1;
+		auto it = name2CiSkolem.find(XiName);
+		if (it != name2CiSkolem.end()) {
+			CiSkolem = it->second;
+		} else {
+			int num = trailingNumber(XiName);
+			auto itn = num2CiSkolem.find(num);
+			assert(itn != num2CiSkolem.end());
+			CiSkolem = itn->second;
+			usedNumericFallback = true;
+		}
+		//cout << "CiSkolem for X  " << i << " is " << CiSkolem << endl;
+		Xi2Ci_Skolem.push_back(CiSkolem);
+	}
 	for (int i = 0; i < numY; ++i) {
-				string YiName = id2NameF[varsYF[i]];
-				assert( name2CoSkolem.count(YiName) > 0);
-				int CoSkolem = name2CoSkolem[YiName];
-				Yi2Co_Skolem.push_back(CoSkolem);
-			}
+		string YiName = id2NameF[varsYF[i]];
+		int CoSkolem = -1;
+		auto it = name2CoSkolem.find(YiName);
+		if (it != name2CoSkolem.end()) {
+			CoSkolem = it->second;
+		} else {
+			int num = trailingNumber(YiName);
+			auto itn = num2CoSkolem.find(num);
+			assert(itn != num2CoSkolem.end());
+			CoSkolem = itn->second;
+			usedNumericFallback = true;
+		}
+		Yi2Co_Skolem.push_back(CoSkolem);
+	}
+	if (usedNumericFallback) {
+		cout << "Warning: Skolem IO names do not match; matched by numeric suffix." << endl;
+	}
 
 	Ci2Xi_Skolem.resize(numX,-1);
 	for (int i = 0; i < numX; ++i)
@@ -634,4 +695,3 @@ string getFileName(string s) {
 
 	return(s);
 }
-
